@@ -1,61 +1,39 @@
-# run_robot.py - UNIVERSAL RUNNER
+# run_real.py - For RPi real hardware
 import sys
 import os
 import time
 
-# Add the src folder to Python path
+# Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-print("🤖 Starting Universal Robot Delivery System...")
+print("🤖 STARTING REAL HARDWARE MODE")
 
 try:
-    from config import USE_REAL_HARDWARE, ROBOT_ID
-    
-    # Import the appropriate sensor manager
-    if USE_REAL_HARDWARE:
-        print(f"🔧 Starting REAL HARDWARE mode for {ROBOT_ID}")
-        try:
-            from real_sensor_manager import RealSensorManager as SensorManager
-            print("✅ Real sensor manager loaded")
-        except ImportError:
-            print("❌ Real sensor manager not found. Falling back to simulation.")
-            from sensor_manager import SensorManager
-    else:
-        print(f"💻 Starting SIMULATION mode for {ROBOT_ID}") 
-        from sensor_manager import SensorManager
-        
+    from real_sensor_manager import RealSensorManager as SensorManager
     from firebase_manager import FirebaseManager
-    from config import SENSOR_CHECK_INTERVAL, FIREBASE_UPDATE_INTERVAL
+    from config import ROBOT_ID, SENSOR_CHECK_INTERVAL, FIREBASE_UPDATE_INTERVAL
 
     class RobotController:
         def __init__(self):
-            print(f"Initializing {ROBOT_ID}...")
+            print(f"🔧 Initializing REAL HARDWARE for {ROBOT_ID}...")
             self.sensor_manager = SensorManager()
             self.firebase_manager = FirebaseManager()
             self.running = False
             self.last_firebase_update = 0
-            self.last_command_time = 0
-            self.command_cooldown = 3
             
         def execute_command(self, command):
-            current_time = time.time()
-            if current_time - self.last_command_time < self.command_cooldown:
-                print(f"⏳ Skipping command {command} - too soon")
-                return
-                
-            print(f"🎯 Executing command: {command}")
-            self.last_command_time = current_time
+            print(f"🎯 Executing: {command}")
             
             if command == 'OPEN_ALL':
                 self.sensor_manager.open_all_boxes()
             elif command == 'CLOSE_ALL':
                 self.sensor_manager.close_all_boxes()
             elif command == 'STOP':
-                print("🛑 EMERGENCY STOP executed")
+                print("🛑 EMERGENCY STOP")
             elif command == 'GO':
-                print("🟢 GO command executed")
+                print("🟢 GO")
             else:
-                print(f"❓ Unknown command: {command}")
+                print(f"❓ Unknown: {command}")
         
         def update_firebase(self):
             try:
@@ -74,22 +52,21 @@ try:
                 success = self.firebase_manager.update_robot_status(compartments_data)
                 
                 if success:
-                    print("📡 Firebase updated successfully")
+                    print("📡 Firebase updated")
                 else:
-                    print("❌ Failed to update Firebase")
+                    print("❌ Firebase update failed")
                     
             except Exception as e:
-                print(f"❌ Error updating Firebase: {e}")
+                print(f"❌ Firebase error: {e}")
         
         def start(self):
             print("=" * 50)
-            print(f"🤖 ROBOT DELIVERY SYSTEM - {ROBOT_ID}")
-            print(f"🔧 Mode: {'REAL HARDWARE' if USE_REAL_HARDWARE else 'SIMULATION'}")
+            print(f"🤖 REAL HARDWARE - {ROBOT_ID}")
             print("=" * 50)
             self.running = True
             
             try:
-                # Initial sensor check
+                # Initial setup
                 self.sensor_manager.check_all_sensors()
                 self.update_firebase()
                 
@@ -98,40 +75,36 @@ try:
                     # Check sensors
                     self.sensor_manager.check_all_sensors()
                     
-                    # Update Firebase periodically
+                    # Update Firebase
                     current_time = time.time()
                     if current_time - self.last_firebase_update >= FIREBASE_UPDATE_INTERVAL:
                         self.update_firebase()
                         self.last_firebase_update = current_time
                     
-                    # Check for commands
-                    if current_time - self.last_command_time >= 1:
-                        command = self.firebase_manager.check_commands()
-                        if command:
-                            self.execute_command(command)
+                    # Check commands
+                    command = self.firebase_manager.check_commands()
+                    if command:
+                        self.execute_command(command)
                     
                     time.sleep(SENSOR_CHECK_INTERVAL)
                     
             except KeyboardInterrupt:
                 self.stop()
             except Exception as e:
-                print(f"💥 Fatal error: {e}")
+                print(f"💥 Hardware error: {e}")
                 self.stop()
         
         def stop(self):
-            print("🛑 Stopping robot controller...")
+            print("🛑 Stopping hardware...")
             self.running = False
             self.sensor_manager.cleanup()
-            print("✅ Robot controller stopped safely")
+            print("✅ Hardware stopped")
 
-    # Start the robot
+    # Start real hardware
     robot = RobotController()
     robot.start()
     
-except ImportError as e:
-    print(f"❌ Import error: {e}")
-    print("💡 Tip: Run 'python scripts/generate_robot_config.py Robot_001' first")
 except KeyboardInterrupt:
-    print("👋 System stopped by user")
+    print("👋 Hardware stopped by user")
 except Exception as e:
-    print(f"💥 Error: {e}")
+    print(f"💥 Hardware error: {e}")
