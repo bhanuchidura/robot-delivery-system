@@ -1,8 +1,5 @@
-# src/firebase_manager.py
 import requests
 import time
-
-# Import config directly (will work when run from run_robot.py)
 from config import FIREBASE_URL, ROBOT_ID
 
 class FirebaseManager:
