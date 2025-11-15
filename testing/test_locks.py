@@ -1,4 +1,8 @@
 # testing/test_locks.py
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
 import time
 from gpiozero import OutputDevice
 from config import BOX_CONFIG, LOCK_ACTIVE_HIGH

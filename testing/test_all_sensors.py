@@ -1,4 +1,8 @@
 # testing/test_all_sensors.py
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
 import time
 from real_sensor_manager_simple import RealSensorManager
 
@@ -56,4 +60,3 @@ def test_all_sensors():
 
 if __name__ == "__main__":
     test_all_sensors()
-    

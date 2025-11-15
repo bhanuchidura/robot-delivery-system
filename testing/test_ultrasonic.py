@@ -1,4 +1,8 @@
 # testing/test_ultrasonic.py
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
 import RPi.GPIO as GPIO
 import time
 from config import BOX_CONFIG, OCCUPIED_DISTANCE_CM
