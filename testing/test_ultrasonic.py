@@ -1,121 +1,108 @@
-# testing/test_ultrasonic_safe.py
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-import RPi.GPIO as GPIO
+# test_ultrasonic.py - Test ultrasonic sensor with current GPIO pins
+from gpiozero import DigitalInputDevice, DigitalOutputDevice
 import time
-from config import BOX_CONFIG, OCCUPIED_DISTANCE_CM
 
-def safe_measure_distance(box_num):
-    """Safe distance measurement with error handling"""
-    config = BOX_CONFIG[box_num]
+print("🔊 TESTING ULTRASONIC SENSOR")
+print("=" * 50)
+
+# Current GPIO pins from your config
+TRIG_PIN = 23  # GPIO5 - Physical Pin 29
+ECHO_PIN = 24  # GPIO6 - Physical Pin 31
+
+try:
+    # Setup pins
+    trigger = DigitalOutputDevice(TRIG_PIN)
+    echo = DigitalInputDevice(ECHO_PIN)
     
-    try:
-        # Setup pins fresh each time
-        GPIO.setup(config['ultrasonic_trigger'], GPIO.OUT)
-        GPIO.setup(config['ultrasonic_echo'], GPIO.IN)
-        
+    print(f"✅ Sensor connected:")
+    print(f"   TRIG: GPIO{TRIG_PIN} (Pin 29)")
+    print(f"   ECHO: GPIO{ECHO_PIN} (Pin 31)")
+    print(f"   VCC: 5V (Pin 2)")
+    print(f"   GND: GND (Pin 6)")
+    print()
+    
+    def measure_distance():
         # Ensure trigger starts low
-        GPIO.output(config['ultrasonic_trigger'], False)
-        time.sleep(0.1)  # Longer stabilization
+        trigger.off()
+        time.sleep(0.0005)
         
-        # Send trigger pulse
-        GPIO.output(config['ultrasonic_trigger'], True)
+        # Send 10μs pulse
+        trigger.on()
         time.sleep(0.00001)  # 10 microseconds
-        GPIO.output(config['ultrasonic_trigger'], False)
+        trigger.off()
         
-        start_time = time.time()
-        stop_time = time.time()
+        pulse_start = time.time()
+        pulse_end = time.time()
         
-        # Wait for echo to go high (with timeout)
-        timeout = time.time() + 0.1  # 100ms timeout
-        while GPIO.input(config['ultrasonic_echo']) == 0:
-            start_time = time.time()
-            if time.time() > timeout:
-                return None
+        # Wait for echo to go HIGH (with timeout)
+        timeout_start = time.time()
+        while not echo.is_active:
+            pulse_start = time.time()
+            if time.time() - timeout_start > 0.1:
+                return None  # Timeout
         
-        # Wait for echo to go low (with timeout)
-        timeout = time.time() + 0.1  # 100ms timeout
-        while GPIO.input(config['ultrasonic_echo']) == 1:
-            stop_time = time.time()
-            if time.time() > timeout:
-                return None
+        # Wait for echo to go LOW (with timeout)
+        timeout_start = time.time()
+        while echo.is_active:
+            pulse_end = time.time()
+            if time.time() - timeout_start > 0.1:
+                return None  # Timeout
         
-        # Calculate distance
-        elapsed = stop_time - start_time
-        distance = (elapsed * 34300) / 2  # Speed of sound in cm/s
+        # Calculate distance in cm
+        pulse_duration = pulse_end - pulse_start
+        distance = (pulse_duration * 34300) / 2  # Speed of sound
         
-        # Validate distance
-        if 2.0 <= distance <= 400.0:
+        # Validate reading
+        if 0.5 <= distance <= 400:
             return distance
         else:
             return None
-            
-    except Exception as e:
-        print(f"    Measurement error: {e}")
-        return None
-    finally:
-        # Clean up these pins
-        GPIO.cleanup(config['ultrasonic_trigger'])
-        GPIO.cleanup(config['ultrasonic_echo'])
-
-def test_ultrasonic_safe():
-    print("📡 SAFE ULTRASONIC SENSOR TEST")
-    print("=" * 50)
-    print("This version handles GPIO errors more gracefully")
+    
+    print("📏 Taking 10 distance measurements...")
+    print("   Place your hand in front of the sensor to test")
     print()
     
-    # Initialize GPIO once
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(True)
+    successful_readings = 0
     
-    print("Testing each ultrasonic sensor...")
-    print("Place an object close to sensors (within 30cm) to test detection")
-    print()
-    
-    successful_boxes = 0
-    
-    for box_num in BOX_CONFIG:
-        print(f"📦 Testing Box {box_num}:")
-        print(f"  Trigger: GPIO{BOX_CONFIG[box_num]['ultrasonic_trigger']}")
-        print(f"  Echo: GPIO{BOX_CONFIG[box_num]['ultrasonic_echo']}")
+    for i in range(10):
+        distance = measure_distance()
         
-        measurements = []
-        
-        for i in range(3):  # Fewer measurements for stability
-            print(f"    Measurement {i+1}...", end=" ")
-            distance = safe_measure_distance(box_num)
-            
-            if distance is not None:
-                measurements.append(distance)
-                status = "📦 PRESENT" if distance < OCCUPIED_DISTANCE_CM else "🔄 EMPTY"
-                print(f"{distance:.1f}cm - {status}")
+        if distance is not None:
+            successful_readings += 1
+            if distance < 2.0:
+                status = "📦 PACKAGE DETECTED"
+            elif distance < 10.0:
+                status = "👋 HAND CLOSE"
+            elif distance < 30.0:
+                status = "🖐️ HAND NEAR"
             else:
-                print("❌ FAILED")
+                status = "🔄 EMPTY"
             
-            time.sleep(0.5)  # Longer delay between measurements
-        
-        if measurements:
-            avg_distance = sum(measurements) / len(measurements)
-            detection_rate = (len(measurements) / 3) * 100
-            print(f"  📊 Average: {avg_distance:.1f}cm, Success: {detection_rate:.0f}%")
-            successful_boxes += 1
+            print(f"   {i+1:2d}. {distance:5.1f} cm - {status}")
         else:
-            print("  ❌ All measurements failed")
+            print(f"   {i+1:2d}. ❌ NO READING")
         
-        print()
+        time.sleep(1)  # Wait 1 second between measurements
     
-    # Final cleanup
-    GPIO.cleanup()
-    
+    print()
     print("=" * 50)
-    print(f"🎯 TEST COMPLETE: {successful_boxes}/{len(BOX_CONFIG)} boxes working")
+    print(f"📊 RESULTS: {successful_readings}/10 successful readings")
     
-    if successful_boxes == len(BOX_CONFIG):
-        print("✅ All ultrasonic sensors are working!")
+    if successful_readings >= 8:
+        print("✅ ULTRASONIC SENSOR IS WORKING PERFECTLY!")
+    elif successful_readings >= 5:
+        print("⚠️  Sensor is working but has some issues")
     else:
-        print("⚠️  Some sensors have issues. Check wiring and GPIO pins.")
-
-if __name__ == "__main__":
-    test_ultrasonic_safe()
+        print("❌ Sensor has problems - check wiring")
+    
+    # Close devices
+    trigger.close()
+    echo.close()
+    
+except Exception as e:
+    print(f"❌ ERROR: {e}")
+    print("Check your wiring:")
+    print("  - VCC to 5V (Pin 2)")
+    print("  - GND to GND (Pin 6)") 
+    print("  - TRIG to GPIO5 (Pin 29)")
+    print("  - ECHO to GPIO6 (Pin 31)")

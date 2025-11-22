@@ -1,11 +1,16 @@
+# src/firebase_manager.py - Simple version without circular imports
 import requests
 import time
-from config import FIREBASE_URL, ROBOT_ID
+
+# Direct configuration (no imports from config)
+FIREBASE_URL = "https://delivery-robot-p1nl-default-rtdb.europe-west1.firebasedatabase.app"
+ROBOT_ID = "Robot_001"
 
 class FirebaseManager:
     def __init__(self):
         self.base_url = FIREBASE_URL
         self.robot_id = ROBOT_ID
+        self.last_is_open_states = {}  # Track previous states to detect changes
 
     def send_data(self, data, path):
         try:
@@ -45,19 +50,43 @@ class FirebaseManager:
             print(f"Error updating Firebase: {e}")
             return False
 
-    def check_commands(self):
+    def check_is_open_changes(self, current_physical_states):
+        """Check if frontend changed is_open for any box and return actions needed"""
         try:
-            commands = self.get_data(f"robot_commands/{self.robot_id}")
+            # Get current Firebase states
+            firebase_data = self.get_data(f"robots/{self.robot_id}/compartments")
+            
+            if not firebase_data:
+                return []
 
-            if commands and 'current_command' in commands:
-                command = commands['current_command']
-                if command:
-                    print(f"Received command: {command}")
-                    self.send_data("", f"robot_commands/{self.robot_id}/current_command")
-                    return command
-
-            return None
+            actions = []
+            
+            for box_num, box_data in firebase_data.items():
+                if not box_data or 'is_open' not in box_data:
+                    continue
+                    
+                firebase_is_open = box_data['is_open']
+                physical_is_open = current_physical_states.get(int(box_num), False)
+                last_known_state = self.last_is_open_states.get(int(box_num))
+                
+                print(f"🔍 Box {box_num}: Firebase={firebase_is_open}, Physical={physical_is_open}, Last={last_known_state}")
+                
+                # If Firebase state changed AND doesn't match physical state
+                if (firebase_is_open != last_known_state and 
+                    firebase_is_open != physical_is_open):
+                    
+                    if firebase_is_open:
+                        actions.append(('OPEN', int(box_num)))
+                        print(f"🎯 Frontend requested: OPEN Box {box_num}")
+                    else:
+                        actions.append(('CLOSE', int(box_num)))
+                        print(f"🎯 Frontend requested: CLOSE Box {box_num}")
+                
+                # Update last known state
+                self.last_is_open_states[int(box_num)] = firebase_is_open
+            
+            return actions
 
         except Exception as e:
-            print(f"Error checking commands: {e}")
-            return None
+            print(f"❌ Error checking is_open changes: {e}")
+            return []
