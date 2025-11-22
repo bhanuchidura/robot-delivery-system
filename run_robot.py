@@ -316,10 +316,7 @@ class RobotController:
         print("✅ Hardware stopped cleanly")
 
 if __name__ == "__main__":
-    # Clean up first
-    print("🧹 Cleaning up existing processes...")
-    os.system('sudo pkill -f python3 2>/dev/null')
-    time.sleep(2)
+    print("🤖 STARTING ROBOT...")
     
     try:
         robot = RobotController()
