@@ -16,8 +16,8 @@ BOX_CONFIG = {
 }
 
 OCCUPIED_DISTANCE_CM = 2.0
-SENSOR_CHECK_INTERVAL = 2
-FIREBASE_UPDATE_INTERVAL = 3
+SENSOR_CHECK_INTERVAL = 5
+FIREBASE_UPDATE_INTERVAL = 20
 
 class RealSensorManager:
     def __init__(self):
@@ -31,27 +31,32 @@ class RealSensorManager:
     def setup_sensors(self):
         print("🔧 REAL HARDWARE: Setting up Box 1 only...")
         
+        # Clean up any existing devices first
+        self.cleanup()
+        
         # Start with just Box 1
         box_num = 1
         config = BOX_CONFIG[box_num]
         
         try:
-            # Setup lock control
-            print(f"Setting up Lock (GPIO{config['lock_pin']})...", end=" ")
+            print(f"Setting up hardware for Box {box_num}...")
+            
+            # Setup ultrasonic sensors FIRST (they're less likely to conflict)
+            print(f"  Setting up Trigger (GPIO{config['ultrasonic_trigger']})...", end=" ")
+            self.triggers[box_num] = DigitalOutputDevice(config['ultrasonic_trigger'])
+            print("✅")
+            
+            print(f"  Setting up Echo (GPIO{config['ultrasonic_echo']})...", end=" ")
+            self.echos[box_num] = DigitalInputDevice(config['ultrasonic_echo'])
+            print("✅")
+            
+            # Setup lock control LAST
+            print(f"  Setting up Lock (GPIO{config['lock_pin']})...", end=" ")
             self.locks[box_num] = OutputDevice(
                 config['lock_pin'], 
                 active_high=False, 
                 initial_value=False
             )
-            print("✅")
-            
-            # Setup ultrasonic sensor pins
-            print(f"Setting up Trigger (GPIO{config['ultrasonic_trigger']})...", end=" ")
-            self.triggers[box_num] = DigitalOutputDevice(config['ultrasonic_trigger'])
-            print("✅")
-            
-            print(f"Setting up Echo (GPIO{config['ultrasonic_echo']})...", end=" ")
-            self.echos[box_num] = DigitalInputDevice(config['ultrasonic_echo'])
             print("✅")
             
             # Initialize status
@@ -69,10 +74,11 @@ class RealSensorManager:
             
         except Exception as e:
             print(f"❌ FAILED: {e}")
-            print("💡 Try: sudo pkill -f python3 && sleep 2")
+            # Clean up on failure
+            self.cleanup()
             raise
         
-        print("✅ Hardware initialized!")
+        print("✅ Hardware initialized!")        
     
     def measure_distance(self, box_num):
         """Measure distance using pure gpiozero"""
@@ -178,16 +184,28 @@ class RealSensorManager:
     def cleanup(self):
         """Safe hardware cleanup"""
         print("🧹 Cleaning up hardware...")
-        for box_num in self.locks:
-            self.close_box(box_num)
+        
+        # Close all boxes first
+        for box_num in list(self.locks.keys()):
+            try:
+                self.locks[box_num].off()
+            except:
+                pass
         
         # Close all gpiozero devices
         for device_dict in [self.locks, self.triggers, self.echos]:
-            for device in device_dict.values():
+            for device in list(device_dict.values()):
                 try:
                     device.close()
                 except:
                     pass
+            device_dict.clear()
+        
+        # Clear status dictionaries
+        self.box_status.clear()
+        self.last_occupancy_status.clear()
+        
+        print("🧹 Hardware cleanup complete")
         
         print("🧹 Hardware cleanup complete")
 
@@ -206,11 +224,17 @@ class RobotController:
         self.last_firebase_update = 0
         
     def execute_lock_action(self, action, box_num):
-        """Execute lock action from frontend"""
+        """Execute lock action from frontend with 2-second timer"""
+        import time
+        
         if action == 'OPEN':
             success = self.sensor_manager.open_box(box_num)
             if success:
-                print(f"✅ Executed: OPEN Box {box_num}")
+                print(f"✅ Executed: OPEN Box {box_num} for 2 seconds")
+                # Wait 2 seconds then auto-close
+                time.sleep(2)
+                self.sensor_manager.close_box(box_num)
+                print(f"🔒 Auto-closed Box {box_num} after 2 seconds")
         elif action == 'CLOSE':
             success = self.sensor_manager.close_box(box_num)
             if success:

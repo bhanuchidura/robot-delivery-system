@@ -61,13 +61,25 @@ class FirebaseManager:
 
             actions = []
             
+            # Handle both list and dictionary formats from Firebase
+            if isinstance(firebase_data, list):
+                # Convert list to dictionary
+                firebase_dict = {}
+                for i, box_data in enumerate(firebase_data, 1):
+                    if box_data:  # Only if box data exists
+                        firebase_dict[i] = box_data
+                firebase_data = firebase_dict
+            
             for box_num, box_data in firebase_data.items():
                 if not box_data or 'is_open' not in box_data:
                     continue
                     
+                # Convert box_num to integer if it's string
+                box_num = int(box_num)
+                
                 firebase_is_open = box_data['is_open']
-                physical_is_open = current_physical_states.get(int(box_num), False)
-                last_known_state = self.last_is_open_states.get(int(box_num))
+                physical_is_open = current_physical_states.get(box_num, False)
+                last_known_state = self.last_is_open_states.get(box_num)
                 
                 print(f"🔍 Box {box_num}: Firebase={firebase_is_open}, Physical={physical_is_open}, Last={last_known_state}")
                 
@@ -76,14 +88,14 @@ class FirebaseManager:
                     firebase_is_open != physical_is_open):
                     
                     if firebase_is_open:
-                        actions.append(('OPEN', int(box_num)))
+                        actions.append(('OPEN', box_num))
                         print(f"🎯 Frontend requested: OPEN Box {box_num}")
                     else:
-                        actions.append(('CLOSE', int(box_num)))
+                        actions.append(('CLOSE', box_num))
                         print(f"🎯 Frontend requested: CLOSE Box {box_num}")
                 
                 # Update last known state
-                self.last_is_open_states[int(box_num)] = firebase_is_open
+                self.last_is_open_states[box_num] = firebase_is_open
             
             return actions
 
