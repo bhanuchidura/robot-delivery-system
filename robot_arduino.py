@@ -60,16 +60,25 @@ class ArduinoManager:
             raise
     
     def send_command(self, command):
-        """Send command to Arduino and get response"""
+        """Send command to Arduino and get ALL responses"""
         try:
             self.ser.write(f"{command}\n".encode())
-            time.sleep(0.1)
+            time.sleep(0.5)  # Give Arduino time to respond
             responses = []
-            while self.ser.in_waiting > 0:
-                response = self.ser.readline().decode().strip()
-                if response:
-                    responses.append(response)
+            
+            # Read all available responses
+            start_time = time.time()
+            while time.time() - start_time < 2:  # Read for up to 2 seconds
+                if self.ser.in_waiting > 0:
+                    line = self.ser.readline().decode().strip()
+                    if line:
+                        responses.append(line)
+                else:
+                    time.sleep(0.1)
+            
+            print(f"📡 Command '{command}' got {len(responses)} responses: {responses}")
             return responses
+            
         except Exception as e:
             print(f"❌ Command failed: {e}")
             return []
@@ -83,19 +92,26 @@ class ArduinoManager:
         return any("OPENED" in r for r in responses)
     
     def get_status(self):
-        """Get status of all boxes"""
+        """Get status of all boxes - fixed version"""
         responses = self.send_command("STATUS")
         status = {}
+        print(f"🔍 Raw STATUS responses: {responses}")  # DEBUG
+        
         for response in responses:
             if response.startswith("STATUS:"):
                 parts = response.split(":")
+                print(f"🔍 Parsing STATUS: {parts}")  # DEBUG
                 if len(parts) >= 5:
-                    box_num = int(parts[1])
-                    status[box_num] = {
-                        'is_open': parts[2] == "OPEN",
-                        'is_occupied': parts[3] == "OCCUPIED",
-                        'distance': float(parts[4]) if parts[4] != "999" else 100.0
-                    }
+                    try:
+                        box_num = int(parts[1])
+                        status[box_num] = {
+                            'is_open': parts[2] == "1",
+                            'is_occupied': parts[3] == "1", 
+                            'distance': float(parts[4]) if parts[4] != "999" else 100.0
+                        }
+                        print(f"✅ Parsed Box {box_num}: open={status[box_num]['is_open']}, occupied={status[box_num]['is_occupied']}, distance={status[box_num]['distance']}")
+                    except Exception as e:
+                        print(f"❌ Error parsing STATUS: {e}")
         return status
     
     def check_messages(self):
@@ -137,6 +153,14 @@ class FirebaseManager:
             
             response = requests.patch(url, json=updates, timeout=10)
             
+            # Add debug prints
+            print(f"📊 Sending sensor data:")
+            for box_num, sensor_data in compartments_data.items():
+                print(f"   Box {box_num}: occupied={sensor_data['is_occupied']}, distance={sensor_data['distance_cm']}cm")
+            
+            print(f"📦 Updates being sent: {updates}")
+
+
             if response.status_code == 200:
                 print("✅ Firebase updated successfully")
                 return True
@@ -266,15 +290,21 @@ def main():
             
             # 5. Update Firebase periodically or when changes occur
             if current_time - last_firebase_update >= firebase_update_interval or actions:
-                # Prepare compartment data - ONLY sensor data
+                # DEBUG: Check what status contains
+                print(f"🔍 Current status from Arduino: {status}")
+                
+                # Prepare compartment data - use same indexes as array (1, 2, 3)
                 compartments_data = {}
                 for box_num, data in status.items():
-                    compartments_data[box_num] = {
+                    compartments_data[box_num] = {  # This will be 1, 2, 3
                         'is_occupied': data['is_occupied'],
                         'distance_cm': data['distance'],
                         'ultrasonic_status': data['distance'] != 100.0,
                         'last_checked': time.time()
                     }
+                
+                # DEBUG: Check what we're sending
+                print(f"🔍 Prepared compartment data: {compartments_data}")
                     # NOTE: We don't include 'is_open' here - let frontend control that
                 
                 if firebase.update_robot_status(compartments_data):
