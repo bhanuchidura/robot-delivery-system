@@ -1,4 +1,3 @@
-# robot_arduino.py - RPi controls Arduino via USB
 import serial
 import time
 import requests
@@ -256,6 +255,7 @@ def main():
     try:
         arduino = ArduinoManager()
         firebase = FirebaseManager()
+        last_occupancy_status = {}  # Track previous occupancy states  <-- ADDED THIS LINE
         
         print("✅ System ready!")
         print("📡 Listening for sensor changes and Firebase commands...")
@@ -276,6 +276,7 @@ def main():
             
             # 2. Get current physical status
             status = arduino.get_status()
+            print(f"🔍 Status from Arduino: {status}")  # Add this line
             
             # 3. Check if frontend wants to open boxes
             current_states = {box_num: data['is_open'] for box_num, data in status.items()}
@@ -288,7 +289,27 @@ def main():
                     # Update status after opening
                     status = arduino.get_status()
             
-            # 5. Update Firebase periodically or when changes occur
+            # 5. SIMPLE AUTO-CLOSE: When package removed, set is_open to false
+            current_occupancy = {}
+            for box_num, data in status.items():
+                current_occupancy[box_num] = data['is_occupied']
+            
+            for box_num in current_occupancy:
+                was_occupied = last_occupancy_status.get(box_num, False)
+                is_now_occupied = current_occupancy[box_num]
+                
+                # When package removed (occupied → empty), close in database
+                if was_occupied and not is_now_occupied:
+                    print(f"📦 Package removed from Box {box_num}, setting is_open to false")
+                    url = f"{FIREBASE_URL}/robots/{ROBOT_ID}/compartments/{box_num}/is_open.json"
+                    requests.put(url, data="false", timeout=5)
+                    print(f"🔒 Box {box_num} closed in database")
+            
+            # Update last occupancy status
+            last_occupancy_status = current_occupancy
+            # END OF ADDED BLOCK
+            
+            # 6. Update Firebase periodically or when changes occur
             if current_time - last_firebase_update >= firebase_update_interval or actions:
                 # DEBUG: Check what status contains
                 print(f"🔍 Current status from Arduino: {status}")
