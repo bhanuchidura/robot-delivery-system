@@ -16,6 +16,21 @@ BOX_CONFIG = {
         'lock_pin': 9,
         'ultrasonic_trigger': 11,
         'ultrasonic_echo': 5,
+    },
+    4: {
+        'lock_pin': 6,
+        'ultrasonic_trigger': 13,
+        'ultrasonic_echo': 19,
+    },
+    5: {
+        'lock_pin': 26,
+        'ultrasonic_trigger': 21,
+        'ultrasonic_echo': 20,
+    },
+    6: {
+        'lock_pin': 16,
+        'ultrasonic_trigger': 12,
+        'ultrasonic_echo': 1,
     }
 }
 

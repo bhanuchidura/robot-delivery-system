@@ -1,10 +1,27 @@
+# robot_arduino_6box.py - RPi controls Arduino via USB (6 compartments)
 import serial
 import time
 import requests
 import json
+import atexit
+
+def cleanup_heartbeat():
+    """Set robot offline when program stops"""
+    try:
+        offline_updates = {}
+        offline_updates[f'robots/{ROBOT_ID}/online'] = False
+        url = f"{FIREBASE_URL}/.json"
+        requests.patch(url, json=offline_updates, timeout=5)
+        print("🔴 Robot status set to offline")
+    except:
+        pass
+
+# Register cleanup function
+atexit.register(cleanup_heartbeat)
 
 ROBOT_ID = "Robot_001"
 FIREBASE_URL = "https://delivery-robot-p1nl-default-rtdb.europe-west1.firebasedatabase.app"
+BOX_COUNT = 6
 
 class ArduinoManager:
     def __init__(self):
@@ -91,7 +108,7 @@ class ArduinoManager:
         return any("OPENED" in r for r in responses)
     
     def get_status(self):
-        """Get status of all boxes - fixed version"""
+        """Get status of all boxes - 6 compartment version"""
         responses = self.send_command("STATUS")
         status = {}
         print(f"🔍 Raw STATUS responses: {responses}")  # DEBUG
@@ -132,13 +149,13 @@ class FirebaseManager:
         self.last_is_open_states = {}
     
     def update_robot_status(self, compartments_data):
-        """Simple Firebase update"""
+        """Simple Firebase update for 6 compartments"""
         try:
             updates = {}
             updates[f'robots/{self.robot_id}/last_updated'] = time.time()
             updates[f'robots/{self.robot_id}/battery_level'] = 85
             
-            # Update compartments as array indexes 1, 2, 3
+            # Update compartments as array indexes 1-6
             for box_num, sensor_data in compartments_data.items():
                 index = int(box_num)
                 updates[f'robots/{self.robot_id}/compartments/{index}/is_occupied'] = sensor_data['is_occupied']
@@ -153,13 +170,10 @@ class FirebaseManager:
             response = requests.patch(url, json=updates, timeout=10)
             
             # Add debug prints
-            print(f"📊 Sending sensor data:")
+            print(f"📊 Sending sensor data for {len(compartments_data)} compartments:")
             for box_num, sensor_data in compartments_data.items():
                 print(f"   Box {box_num}: occupied={sensor_data['is_occupied']}, distance={sensor_data['distance_cm']}cm")
             
-            print(f"📦 Updates being sent: {updates}")
-
-
             if response.status_code == 200:
                 print("✅ Firebase updated successfully")
                 return True
@@ -170,10 +184,9 @@ class FirebaseManager:
         except Exception as e:
             print(f"❌ Firebase error: {e}")
             return False
-
     
     def check_is_open_changes(self, current_physical_states):
-        """Check if frontend wants to open/close boxes - handle array structure"""
+        """Check if frontend wants to open/close boxes - handle array structure for 6 boxes"""
         try:
             # Get current Firebase data
             url = f"{self.base_url}/robots/{self.robot_id}.json"
@@ -191,8 +204,8 @@ class FirebaseManager:
             
             # Handle both array and object structures
             if isinstance(compartments_data, list):
-                # Array structure (index 1, 2, 3)
-                for index in range(1, 4):  # Check indexes 1, 2, 3
+                # Array structure (index 1-6)
+                for index in range(1, 7):  # Check indexes 1-6
                     if index < len(compartments_data) and compartments_data[index]:
                         comp_data = compartments_data[index]
                         if 'is_open' in comp_data:
@@ -246,18 +259,15 @@ class FirebaseManager:
             print(f"❌ Error checking Firebase: {e}")
             return []
 
-
-
 def main():
-    print("🤖 ARDUINO ROBOT STARTING...")
-    print("=" * 40)
+    print("🤖 ARDUINO ROBOT STARTING (6 COMPARTMENTS)...")
+    print("=" * 50)
     
     try:
         arduino = ArduinoManager()
         firebase = FirebaseManager()
-        last_occupancy_status = {}  # Track previous occupancy states  <-- ADDED THIS LINE
         
-        print("✅ System ready!")
+        print("✅ System ready! (6 compartments)")
         print("📡 Listening for sensor changes and Firebase commands...")
         
         last_firebase_update = 0
@@ -276,7 +286,6 @@ def main():
             
             # 2. Get current physical status
             status = arduino.get_status()
-            print(f"🔍 Status from Arduino: {status}")  # Add this line
             
             # 3. Check if frontend wants to open boxes
             current_states = {box_num: data['is_open'] for box_num, data in status.items()}
@@ -289,35 +298,15 @@ def main():
                     # Update status after opening
                     status = arduino.get_status()
             
-            # 5. SIMPLE AUTO-CLOSE: When package removed, set is_open to false
-            current_occupancy = {}
-            for box_num, data in status.items():
-                current_occupancy[box_num] = data['is_occupied']
-            
-            for box_num in current_occupancy:
-                was_occupied = last_occupancy_status.get(box_num, False)
-                is_now_occupied = current_occupancy[box_num]
-                
-                # When package removed (occupied → empty), close in database
-                if was_occupied and not is_now_occupied:
-                    print(f"📦 Package removed from Box {box_num}, setting is_open to false")
-                    url = f"{FIREBASE_URL}/robots/{ROBOT_ID}/compartments/{box_num}/is_open.json"
-                    requests.put(url, data="false", timeout=5)
-                    print(f"🔒 Box {box_num} closed in database")
-            
-            # Update last occupancy status
-            last_occupancy_status = current_occupancy
-            # END OF ADDED BLOCK
-            
-            # 6. Update Firebase periodically or when changes occur
+            # 5. Update Firebase periodically or when changes occur
             if current_time - last_firebase_update >= firebase_update_interval or actions:
                 # DEBUG: Check what status contains
                 print(f"🔍 Current status from Arduino: {status}")
                 
-                # Prepare compartment data - use same indexes as array (1, 2, 3)
+                # Prepare compartment data - use same indexes as array (1-6)
                 compartments_data = {}
                 for box_num, data in status.items():
-                    compartments_data[box_num] = {  # This will be 1, 2, 3
+                    compartments_data[box_num] = {  # This will be 1-6
                         'is_occupied': data['is_occupied'],
                         'distance_cm': data['distance'],
                         'ultrasonic_status': data['distance'] != 100.0,
@@ -325,14 +314,27 @@ def main():
                     }
                 
                 # DEBUG: Check what we're sending
-                print(f"🔍 Prepared compartment data: {compartments_data}")
-                    # NOTE: We don't include 'is_open' here - let frontend control that
+                print(f"🔍 Prepared compartment data for {len(compartments_data)} boxes")
                 
                 if firebase.update_robot_status(compartments_data):
                     print("📡 Firebase updated")
                     last_firebase_update = current_time
                 else:
                     print("❌ Firebase update failed")
+            
+                        # 7. Update robot online status (heartbeat)
+            try:
+                heartbeat_updates = {}
+                heartbeat_updates[f'robots/{ROBOT_ID}/online'] = True
+                heartbeat_updates[f'robots/{ROBOT_ID}/last_heartbeat'] = time.time()
+                
+                url = f"{FIREBASE_URL}/.json"
+                requests.patch(url, json=heartbeat_updates, timeout=5)
+                print("💓 Heartbeat sent - Robot online")
+            except Exception as e:
+                print(f"❌ Heartbeat failed: {e}")
+            
+            
             
             time.sleep(2)  # Main loop delay
             
